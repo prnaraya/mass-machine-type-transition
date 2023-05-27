@@ -1,8 +1,8 @@
 package mass_machine_type_transition
 
 import (
-	"context"
 	"fmt"
+	"strings"
 	"time"
 	
 	k8sv1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,6 +12,8 @@ import (
 	k6tv1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/kubecli"
 )
+
+var needsRestart = 0
 
 func getVirtCli() (kubecli.KubevirtClient, error) {
 	clientConfig, err := kubecli.GetKubevirtClientConfig()
@@ -38,20 +40,39 @@ func getVmiInformer(virtCli kubecli.KubevirtClient) (cache.SharedIndexInformer, 
 	return vmiInformer, nil
 }
 
-// this is a temporary function that performs the mass machine type transition by manually iterating through each vm and changing the spec
 func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
-	updateMachineType := fmt.Sprint(`{"spec":{"template":{"spec":{"domain":{"machine":{"type": "pc-q35-rhel9.0.0"}}}}}}`)
 	vmList, err := virtCli.VirtualMachine(k8sv1.NamespaceAll).List(&k8sv1.ListOptions{})
 	if err != nil {
 		return err
 	}
 	for _, vm := range vmList.Items {
-		_, err = virtCli.VirtualMachine(vm.Namespace).Patch(vm.Name, types.StrategicMergePatchType, []byte(updateMachineType), &k8sv1.PatchOptions{})
-		if err != nil {
-			return err
+		machineType := vm.Spec.Template.Spec.Domain.Machine.Type
+		machineTypeSubstrings := strings.Split(machineType, "-")
+		version := machineTypeSubstrings[2]
+		
+		if strings.Contains(version, "rhel") && version < "rhel9.0.0" {
+			machineTypeSubstrings[2] = "rhel9.0.0"
+			machineType = strings.Join(machineTypeSubstrings, "-")
+			updateMachineType := fmt.Sprintf(`{"spec": {"template": {"spec": {"domain": {"machine": {"type": "%s"}}}}}}`, machineType)
+			
+			_, err = virtCli.VirtualMachine(vm.Namespace).Patch(vm.Name, types.StrategicMergePatchType, []byte(updateMachineType), &k8sv1.PatchOptions{})
+			if err != nil {
+				return err
+			}
+			
+			// add label to running VMs that a restart is required for change to take place
+			if vm.Status.Ready {
+				addWarningLabel(virtCli, &vm)
+			}
 		}
 	}
 	return nil
+}
+
+func addWarningLabel (virtCli kubecli.KubevirtClient, vm *k6tv1.VirtualMachine) {
+	addLabel := fmt.Sprint(`{"metadata": {"labels": {"restart-vm-required": "true"}}}}}`)
+	virtCli.VirtualMachine(vm.Namespace).Patch(vm.Name, types.StrategicMergePatchType, []byte(addLabel), &k8sv1.PatchOptions{})
+	needsRestart++
 }
 
 func removeWarningLabel(obj interface{}) {
@@ -59,11 +80,13 @@ func removeWarningLabel(obj interface{}) {
 	if !ok {
 		return
 	}
+	
 	virtCli, err := getVirtCli()
 	if err != nil {
 		return
 	}
 	
-	removeLabel := fmt.Sprint(`{"op": "remove", "path": "metadata/labels/restart-vm-required"}`)
-	virtCli.CoreV1().Nodes().Patch(context.Background(), vmi.Status.NodeName, types.JSONPatchType, []byte(removeLabel), k8sv1.PatchOptions{})
+	removeLabel := fmt.Sprint(`[{"op": "remove", "path": "metadata/labels/restart-vm-required"}]`)
+	virtCli.VirtualMachine(vmi.Namespace).Patch(vmi.Name, types.StrategicMergePatchType, []byte(removeLabel), &k8sv1.PatchOptions{})
+	needsRestart--
 }

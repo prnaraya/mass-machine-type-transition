@@ -16,14 +16,11 @@ func main() {
 	stopCh := make(chan struct{})
 	go vmiInformer.Run(stopCh)
 	
+	
 	updateMachineTypes(virtCli)
 	
-	// for now this uses the number of vms to be restarted to determine
-	// when to exit the job rather than seeing if the actual label exists
-	// on any VMs before exiting the job
-	
-	for (needsRestart > 0) {
-	}
+	// wait for list of VMIs that need restart to be empty
+	<-exitJob
 	
 	os.Exit(0)
 }

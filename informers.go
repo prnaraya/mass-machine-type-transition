@@ -1,6 +1,7 @@
 package mass_machine_type_transition
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -17,8 +18,19 @@ import (
 // we generally want to be updating the machine types to the most recent version
 const latestVersion = "rhel9.2.0"
 
-var vmiList = []string{}
-var exitJob = make(chan struct{})
+var ( 
+	vmiList = []string{}
+	exitJob = make(chan struct{})
+	//namespace string
+	//labels []string
+	restartNow bool
+)
+
+func addFlags() {
+	//flag.StringVar(&namespace, "namespace", "default", "The namespace of VMs to update machine type")
+	//flag.StringArrayVar(&labels, "label", "", "Label to be used by node selector for updating the machine type of certain VMs")
+	flag.BoolVar(&restartNow, "restart-now", false, "Allow VMs to be restarted automatically upon updating the machine type")
+}
 
 func getVirtCli() (kubecli.KubevirtClient, error) {
 	clientConfig, err := kubecli.GetKubevirtClientConfig()
@@ -70,9 +82,18 @@ func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
 			
 			// add label to running VMs that a restart is required for change to take place
 			if vm.Status.Ready {
+				// adding the warning label to the VMs regardless if we restart them now or if the user does it manually
+				// shouldn't matter, since the deletion of the VMI will remove the label and remove the vmi list anyway
 				err = addWarningLabel(virtCli, &vm)
 				if err != nil {
 					return err
+				}
+				
+				if restartNow {
+					err = virtCli.VirtualMachine(vm.Namespace).Restart(context.Background(), vm.Name, &v1.RestartOptions{})
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}

@@ -1,7 +1,6 @@
 package mass_machine_type_transition
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -21,16 +20,14 @@ const latestVersion = "rhel9.2.0"
 var ( 
 	vmiList = []string{}
 	exitJob = make(chan struct{})
-	//namespace string
+	
+	// by default, update machine type across all namespaces
+	namespace = k8sv1.NamespaceAll
 	//labels []string
-	restartNow bool
+	
+	// by default, should require manual restarting of VMIs
+	restartNow = false
 )
-
-func addFlags() {
-	//flag.StringVar(&namespace, "namespace", "default", "The namespace of VMs to update machine type")
-	//flag.StringArrayVar(&labels, "label", "", "Label to be used by node selector for updating the machine type of certain VMs")
-	flag.BoolVar(&restartNow, "restart-now", false, "Allow VMs to be restarted automatically upon updating the machine type")
-}
 
 func getVirtCli() (kubecli.KubevirtClient, error) {
 	clientConfig, err := kubecli.GetKubevirtClientConfig()
@@ -47,7 +44,7 @@ func getVirtCli() (kubecli.KubevirtClient, error) {
 }
 
 func getVmiInformer(virtCli kubecli.KubevirtClient) (cache.SharedIndexInformer, error) {
-	listWatcher := cache.NewListWatchFromClient(virtCli.RestClient(), "virtualmachineinstances", k8sv1.NamespaceAll, fields.Everything())
+	listWatcher := cache.NewListWatchFromClient(virtCli.RestClient(), "virtualmachineinstances", namespace, fields.Everything())
 	vmiInformer := cache.NewSharedIndexInformer(listWatcher, &k6tv1.VirtualMachineInstance{}, 1*time.Hour, cache.Indexers{})
 	
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs {
@@ -58,7 +55,7 @@ func getVmiInformer(virtCli kubecli.KubevirtClient) (cache.SharedIndexInformer, 
 }
 
 func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
-	vmList, err := virtCli.VirtualMachine(k8sv1.NamespaceAll).List(&k8sv1.ListOptions{})
+	vmList, err := virtCli.VirtualMachine(namespace).List(&k8sv1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -90,7 +87,7 @@ func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
 				}
 				
 				if restartNow {
-					err = virtCli.VirtualMachine(vm.Namespace).Restart(context.Background(), vm.Name, &v1.RestartOptions{})
+					err = virtCli.VirtualMachine(vm.Namespace).Restart(vm.Name, &k6tv1.RestartOptions{})
 					if err != nil {
 						return err
 					}

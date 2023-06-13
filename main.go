@@ -1,6 +1,9 @@
 package mass_machine_type_transition
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 func main() {
 	virtCli, err := getVirtCli()
@@ -13,11 +16,14 @@ func main() {
 		os.Exit(1)
 	}
 	
-	stopCh := make(chan struct{})
-	go vmiInformer.Run(stopCh)
+	exitJob = make(chan struct{})
+	go vmiInformer.Run(exitJob)
 	
 	
-	updateMachineTypes(virtCli)
+	err = updateMachineTypes(virtCli)
+	if err != nil {
+		fmt.Println(err)
+	}
 	
 	// wait for list of VMIs that need restart to be empty
 	<-exitJob

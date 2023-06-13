@@ -15,10 +15,12 @@ import (
 
 // using this as a const allows us to easily modify the program to update if a newer version is released
 // we generally want to be updating the machine types to the most recent version
-const latestVersion = "rhel9.2.0"
+const latestMachineTypeVersion = "rhel9.2.0"
 
-var vmiList = []string{}
-var exitJob = make(chan struct{})
+var ( 
+	vmisPendingUpdate = make(map[string]struct{})
+	exitJob = make(chan struct{})
+)
 
 func getVirtCli() (kubecli.KubevirtClient, error) {
 	clientConfig, err := kubecli.GetKubevirtClientConfig()
@@ -39,7 +41,8 @@ func getVmiInformer(virtCli kubecli.KubevirtClient) (cache.SharedIndexInformer, 
 	vmiInformer := cache.NewSharedIndexInformer(listWatcher, &k6tv1.VirtualMachineInstance{}, 1*time.Hour, cache.Indexers{})
 	
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs {
-		DeleteFunc: removeWarningLabel,
+		UpdateFunc: handleVmiUpdate,
+		DeleteFunc: handleVmiDeletion,
 	})
 
 	return vmiInformer, nil
@@ -59,7 +62,7 @@ func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
 		}
 		
 		if strings.Contains(version, "rhel") && version < "rhel9.0.0" {
-			machineTypeSubstrings[2] = latestVersion
+			machineTypeSubstrings[2] = latestMachineTypeVersion
 			machineType = strings.Join(machineTypeSubstrings, "-")
 			updateMachineType := fmt.Sprintf(`{"spec": {"template": {"spec": {"domain": {"machine": {"type": "%s"}}}}}}`, machineType)
 			
@@ -86,37 +89,60 @@ func addWarningLabel (virtCli kubecli.KubevirtClient, vm *k6tv1.VirtualMachine) 
 	if err != nil {
 		return err
 	}
-	vmiList = append(vmiList, vm.Name)
+	
+	// get VM name in the format namespace/name
+	vmKey, err := cache.MetaNamespaceKeyFunc(vm)
+	if err != nil {
+		return err
+	}
+	vmisPendingUpdate[vmKey] = struct{}{}
 	
 	return nil
 }
 
-func removeWarningLabel(obj interface{}) {
+func handleVmiUpdate(oldObj interface{}, newObj interface{}) {
+	vmi, ok := newObj.(*k6tv1.VirtualMachineInstance)
+	if !ok {
+		return
+	}
+	
+	// check VMI status for Succeeded
+	if vmi.Status.Phase != k6tv1.Succeeded {
+		return
+	}
+	
+	removeWarningLabel(vmi)	
+}
+
+func handleVmiDeletion(obj interface{}) {
 	vmi, ok := obj.(*k6tv1.VirtualMachineInstance)
 	if !ok {
 		return
 	}
 	
+	removeWarningLabel(vmi)
+}
+
+func removeWarningLabel(vmi *k6tv1.VirtualMachineInstance) {
+	
+	// get VMI name in the format namespace/name
+	vmiKey, err := cache.MetaNamespaceKeyFunc(vmi)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	
 	//check if deleted VMI is in list of VMIs that need to be restarted
-	vmiIndex := searchVMIList(vmi.Name)
-	if  vmiIndex == -1 {
+	_, exists := vmisPendingUpdate[vmiKey]
+	if  !exists {
 		return
 	}
 	
 	// remove deleted VMI from list
-	vmiList = append(vmiList[:vmiIndex], vmiList[vmiIndex+1:]...)
+	delete(vmisPendingUpdate, vmiKey)
 	
 	// check if VMI list is now empty, to signal exiting the job
-	if len(vmiList) == 0 {
+	if len(vmisPendingUpdate) == 0 {
 		close(exitJob)
 	}
-}
-
-func searchVMIList(vmiName string) int {
-	for i, element := range vmiList {
-		if element == vmiName {
-			return i
-		}
-	}
-	return -1
 }

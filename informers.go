@@ -17,9 +17,16 @@ import (
 // we generally want to be updating the machine types to the most recent version
 const latestMachineTypeVersion = "rhel9.2.0"
 
-var ( 
+var (
 	vmisPendingUpdate = make(map[string]struct{})
 	exitJob = make(chan struct{})
+	
+	// by default, update machine type across all namespaces
+	namespace = k8sv1.NamespaceAll
+	//labels []string
+	
+	// by default, should require manual restarting of VMIs
+	restartNow = false
 )
 
 func getVirtCli() (kubecli.KubevirtClient, error) {
@@ -37,7 +44,7 @@ func getVirtCli() (kubecli.KubevirtClient, error) {
 }
 
 func getVmiInformer(virtCli kubecli.KubevirtClient) (cache.SharedIndexInformer, error) {
-	listWatcher := cache.NewListWatchFromClient(virtCli.RestClient(), "virtualmachineinstances", k8sv1.NamespaceAll, fields.Everything())
+	listWatcher := cache.NewListWatchFromClient(virtCli.RestClient(), "virtualmachineinstances", namespace, fields.Everything())
 	vmiInformer := cache.NewSharedIndexInformer(listWatcher, &k6tv1.VirtualMachineInstance{}, 1*time.Hour, cache.Indexers{})
 	
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs {
@@ -49,7 +56,7 @@ func getVmiInformer(virtCli kubecli.KubevirtClient) (cache.SharedIndexInformer, 
 }
 
 func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
-	vmList, err := virtCli.VirtualMachine(k8sv1.NamespaceAll).List(&k8sv1.ListOptions{})
+	vmList, err := virtCli.VirtualMachine(namespace).List(&k8sv1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -73,9 +80,18 @@ func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
 			
 			// add label to running VMs that a restart is required for change to take place
 			if vm.Status.Ready {
+				// adding the warning label to the VMs regardless if we restart them now or if the user does it manually
+				// shouldn't matter, since the deletion of the VMI will remove the label and remove the vmi list anyway
 				err = addWarningLabel(virtCli, &vm)
 				if err != nil {
 					return err
+				}
+				
+				if restartNow {
+					err = virtCli.VirtualMachine(vm.Namespace).Restart(vm.Name, &k6tv1.RestartOptions{})
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}

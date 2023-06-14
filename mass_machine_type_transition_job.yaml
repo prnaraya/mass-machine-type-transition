@@ -11,4 +11,9 @@ spec:
       - name: machine-type-transition
         image: machine-type-transition:latest
         imagePullPolicy: IfNotPresent
+        env:
+        - name: NAMESPACE
+          value: ""
+        - name: FORCE_RESTART
+          value: false
       restartPolicy: OnFailure

@@ -9,7 +9,7 @@ import (
 func main() {
 	var err error
 	// update restartNow if env is set
-	restartEnv, exists := os.LookupEnv("RESTART_NOW")
+	restartEnv, exists := os.LookupEnv("FORCE_RESTART")
 	if exists {
 		restartNow, err = strconv.ParseBool(restartEnv)
 		if err != nil {
@@ -33,7 +33,6 @@ func main() {
 		os.Exit(1)
 	}
 	
-	exitJob = make(chan struct{})
 	go vmiInformer.Run(exitJob)
 	
 	

@@ -48,8 +48,7 @@ func getVmiInformer(virtCli kubecli.KubevirtClient) (cache.SharedIndexInformer, 
 	vmiInformer := cache.NewSharedIndexInformer(listWatcher, &k6tv1.VirtualMachineInstance{}, 1*time.Hour, cache.Indexers{})
 	
 	vmiInformer.AddEventHandler(cache.ResourceEventHandlerFuncs {
-		UpdateFunc: handleVmiUpdate,
-		DeleteFunc: handleVmiDeletion,
+		DeleteFunc: handleDeletedVmi,
 	})
 
 	return vmiInformer, nil
@@ -79,7 +78,7 @@ func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
 			}
 			
 			// add label to running VMs that a restart is required for change to take place
-			if vm.Status.Ready {
+			if vm.Status.Created {
 				// adding the warning label to the VMs regardless if we restart them now or if the user does it manually
 				// shouldn't matter, since the deletion of the VMI will remove the label and remove the vmi list anyway
 				err = addWarningLabel(virtCli, &vm)
@@ -116,30 +115,11 @@ func addWarningLabel (virtCli kubecli.KubevirtClient, vm *k6tv1.VirtualMachine) 
 	return nil
 }
 
-func handleVmiUpdate(oldObj interface{}, newObj interface{}) {
-	vmi, ok := newObj.(*k6tv1.VirtualMachineInstance)
-	if !ok {
-		return
-	}
-	
-	// check VMI status for Succeeded
-	if vmi.Status.Phase != k6tv1.Succeeded {
-		return
-	}
-	
-	removeWarningLabel(vmi)	
-}
-
-func handleVmiDeletion(obj interface{}) {
+func handleDeletedVmi(obj interface{}) {
 	vmi, ok := obj.(*k6tv1.VirtualMachineInstance)
 	if !ok {
 		return
 	}
-	
-	removeWarningLabel(vmi)
-}
-
-func removeWarningLabel(vmi *k6tv1.VirtualMachineInstance) {
 	
 	// get VMI name in the format namespace/name
 	vmiKey, err := cache.MetaNamespaceKeyFunc(vmi)

@@ -1,4 +1,4 @@
-package mass_machine_type_transition
+ package mass_machine_type_transition
 
 import (
 	"fmt"
@@ -11,9 +11,12 @@ import (
 	"kubevirt.io/client-go/kubecli"
 )
 
-// using this as a const allows us to easily modify the program to update if a newer version is released
+// using these as consts allows us to easily modify the program to update as newer versions are released
 // we generally want to be updating the machine types to the most recent version
-const latestMachineTypeVersion = "rhel9.2.0"
+const (
+	latestMachineTypeVersion = "rhel9.2.0"
+	minimumSupportedMachineTypeVersion = "rhel9.0.0"
+)
 
 var (
 	vmisPendingUpdate = make(map[string]struct{})
@@ -36,7 +39,7 @@ func patchVmMachineType(virtCli kubecli.KubevirtClient, vm *k6tv1.VirtualMachine
 	}
 	
 	// add label to running VMs that a restart is required for change to take place
-	if vm.Status.Created {
+	if *vm.Spec.Running {
 		// adding the warning label to the VMs regardless if we restart them now or if the user does it manually
 		// shouldn't matter, since the deletion of the VMI will remove the label and remove the vmi list anyway
 		err = addWarningLabel(virtCli, vm)
@@ -81,7 +84,7 @@ func updateMachineTypes(virtCli kubecli.KubevirtClient) error {
 		
 		if len(machineTypeSubstrings) == 3 {
 			version := machineTypeSubstrings[2]
-			if strings.Contains(version, "rhel") && version < "rhel9.0.0" {
+			if strings.Contains(version, "rhel") && version < minimumSupportedMachineTypeVersion {
 				machineTypeSubstrings[2] = latestMachineTypeVersion
 				machineType = strings.Join(machineTypeSubstrings, "-")
 				return patchVmMachineType(virtCli, &vm, machineType)

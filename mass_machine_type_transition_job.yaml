@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mass-machine-type-transition
+spec:
+  template:
+    metadata:
+      name: mass-machine-type-transition
+    spec:
+      containers:
+      - name: machine-type-transition
+        image: machine-type-transition:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NAMESPACE
+          value: ""
+        - name: FORCE_RESTART
+          value: false
+      restartPolicy: OnFailure

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"time"
 	
+	k8sv1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	k6tv1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/kubecli"
@@ -48,9 +50,21 @@ func handleDeletedVmi(obj interface{}) {
 		return
 	}
 	
-	//check if deleted VMI is in list of VMIs that need to be restarted
+	// check if deleted VMI is in list of VMIs that need to be restarted
 	_, exists := vmisPendingUpdate[vmiKey]
 	if  !exists {
+		return
+	}
+	
+	// remove warning label from VM
+	// if removing the warning label fails, exit before removing VMI from list
+	// since the label is still there to tell the user to restart, it wouldn't
+	// make sense to have a mismatch between the number of VMs with the label
+	// and the number of VMIs in the list of VMIs pending update.
+	
+	err = removeWarningLabel(vmi)
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 	
@@ -61,4 +75,15 @@ func handleDeletedVmi(obj interface{}) {
 	if len(vmisPendingUpdate) == 0 {
 		close(exitJob)
 	}
+}
+
+func removeWarningLabel(vmi *k6tv1.VirtualMachineInstance) error {
+	virtCli, err := getVirtCli()
+	if err != nil {
+		return err
+	}
+	
+	removeLabel := fmt.Sprint(`{"op": "remove", "path": "/metadata/labels/restart-vm-required"}`)
+	_, err = virtCli.VirtualMachine(vmi.Namespace).Patch(vmi.Name, types.JSONPatchType, []byte(removeLabel), &k8sv1.PatchOptions{})
+	return err
 }

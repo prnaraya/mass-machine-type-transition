@@ -46,15 +46,26 @@ var _ = Describe("Update Machine Type", func() {
 	
 		Describe("AddWarningLabel", func() {
 			
-/*			It("should apply warning label to VM", func() {
+			It("should apply warning label to VM", func() {
+				vm := NewVMWithMachineType("q35", false)
+				vm.Labels = make(map[string]string)
 				
+				addLabel := fmt.Sprint(`{"op": "add", "path": "/metadata/labels", "value" : {"restart-vm-required": "true"}}`)
+				vmInterface.EXPECT().Patch(vm.Name, types.JSONPatchType, []byte(addLabel), &k8sv1.PatchOptions{}).Return(vm, nil)
 				
+				err := addWarningLabel(virtClient, vm)
+				Expect(err).ToNot(HaveOccurred())
+				
+				vmInterface.EXPECT().Get(vm.Name, &k8sv1.GetOptions{}).Return(vm, nil)
+				vm, err = virtClient.VirtualMachine(vm.Namespace).Get(vm.Name, &k8sv1.GetOptions{})
+				
+				Expect(vm.Labels).To(HaveKeyWithValue("restart-vm-required", "true"))
 			})
-*/				
+				
 			It("should add VM key to list of VMIs that must be restarted", func() {
 				vm := NewVMWithMachineType("q35", false)
-				addLabel := fmt.Sprint(`{"metadata": {"labels": {"restart-vm-required": "true"}}}}}`)
-				vmInterface.EXPECT().Patch(vm.Name, types.StrategicMergePatchType, []byte(addLabel), &k8sv1.PatchOptions{}).Return(vm, nil)
+				addLabel := fmt.Sprint(`{"op": "add", "path": "/metadata/labels", "value" : {"restart-vm-required": "true"}}`)
+				vmInterface.EXPECT().Patch(vm.Name, types.JSONPatchType, []byte(addLabel), &k8sv1.PatchOptions{}).Return(vm, nil)
 				
 				err := addWarningLabel(virtClient, vm)
 				Expect(err).ToNot(HaveOccurred())

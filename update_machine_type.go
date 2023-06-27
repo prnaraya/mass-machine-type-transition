@@ -28,6 +28,9 @@ var (
 	
 	// by default, should require manual restarting of VMIs
 	restartNow = false
+	
+	// for testing purposes
+	ignoreKubeClientError = false
 )
 
 func patchVmMachineType(virtCli kubecli.KubevirtClient, vm *k6tv1.VirtualMachine, machineType string) error {

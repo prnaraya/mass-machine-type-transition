@@ -65,7 +65,12 @@ func handleDeletedVmi(obj interface{}) {
 	err = removeWarningLabel(vmi)
 	if err != nil {
 		fmt.Println(err)
-		return
+		
+		// unit tests produce return a kubeconfig error, this ignores the error
+		// to allow unit test to check for VMI removal in general
+		if !ignoreKubeClientError {
+			return
+		}
 	}
 	
 	// remove deleted VMI from list
